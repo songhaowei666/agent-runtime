@@ -43,6 +43,18 @@ export async function listAgents(headers) {
   return body.deployments || [];
 }
 
+export async function queryAgent(deploymentId, payload) {
+  const response = await fetch(`/api/v1/agents/${deploymentId}/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(await readError(response));
+  }
+  return response;
+}
+
 export async function deleteAgent(deploymentId, userId) {
   const response = await fetch(`/api/v1/agents/${deploymentId}`, {
     method: "DELETE",

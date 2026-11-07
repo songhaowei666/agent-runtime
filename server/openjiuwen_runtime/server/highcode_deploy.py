@@ -10,9 +10,11 @@ main 只调用 register_highcode，避免二次开发改动散落到上游路由
 import re
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
+import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.staticfiles import StaticFiles
@@ -183,6 +185,42 @@ def _resolve_port(raw_port: str) -> int:
     return port
 
 
+def _query_targets(base_url: str) -> list[str]:
+    """先用部署记录里的地址，连不上时再改用 127.0.0.1 同端口。"""
+    root = base_url.rstrip("/")
+    targets = [f"{root}/query"]
+    parsed = urlparse(root)
+    host = parsed.hostname
+    if host and host not in {"127.0.0.1", "localhost", "::1"} and parsed.port:
+        loopback = urlunparse(parsed._replace(netloc=f"127.0.0.1:{parsed.port}"))
+        targets.append(f"{loopback.rstrip('/')}/query")
+    return targets
+
+
+async def _open_agent_query(targets: list[str], body: bytes, content_type: str):
+    """按顺序连接 Agent 的 /query，返回已建立的流式响应和客户端。"""
+    client = httpx.AsyncClient(timeout=None)
+    last_error = None
+    for target in targets:
+        try:
+            request = client.build_request(
+                "POST",
+                target,
+                content=body,
+                headers={"Content-Type": content_type or "application/json"},
+            )
+            response = await client.send(request, stream=True)
+            return client, response
+        except httpx.HTTPError as exc:
+            last_error = exc
+            logger.warning("Agent query connect failed: %s, error=%s", target, exc)
+    await client.aclose()
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"无法连接智能体: {last_error}",
+    )
+
+
 def register_highcode(app: FastAPI, deployment_manager) -> None:
     """挂上高码部署路由、租户比对中间件和控制台静态页。"""
 
@@ -253,6 +291,46 @@ def register_highcode(app: FastAPI, deployment_manager) -> None:
                 "status": result.deployment_status.value,
                 "url": result.url,
                 "base_whls": base_whls,
+            },
+        )
+
+    @app.post("/api/v1/agents/{deployment_id}/query")
+    async def query_agent(deployment_id: str, request: Request):
+        """把控制台的测试请求原样转发到对应 Agent 的 /query。"""
+        deployment = await deployment_manager.get_deployment(deployment_id)
+        if deployment is None:
+            return _not_found(deployment_id)
+        if deployment.deployment_status.value != "running" or not deployment.url:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="部署未就绪",
+            )
+
+        body = await request.body()
+        content_type = request.headers.get("Content-Type", "application/json")
+        client, upstream = await _open_agent_query(
+            _query_targets(deployment.url),
+            body,
+            content_type,
+        )
+
+        async def relay():
+            try:
+                async for chunk in upstream.aiter_bytes():
+                    yield chunk
+            finally:
+                await upstream.aclose()
+                await client.aclose()
+
+        media_type = upstream.headers.get("content-type", "text/event-stream")
+        return StreamingResponse(
+            relay(),
+            status_code=upstream.status_code,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
             },
         )
 

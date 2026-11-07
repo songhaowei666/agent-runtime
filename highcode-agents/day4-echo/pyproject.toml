@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "day4-echo-runner"
+version = "0.1.0"
+description = "空白 Agent 模板"
+requires-python = ">=3.11.4"
+dependencies = [
+    "fastapi==0.115.11",
+    "uvicorn[standard]==0.42.0",
+    "pydantic==2.11.7"
+]
+
+[project.scripts]
+day4-echo-runner = "openjiuwen_runtime.day4_echo.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openjiuwen_runtime*"]

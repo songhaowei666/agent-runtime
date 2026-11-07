@@ -123,3 +123,5 @@ dmypy.json
 learn-agent-runtime
 # 本机测试用的第三方 wheel
 mac依赖/
+# 本地开发的高码 WHL，不提交
+highcode-whls/*.whl
