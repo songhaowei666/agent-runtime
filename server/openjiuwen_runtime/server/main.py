@@ -349,6 +349,11 @@ async def delete_agent(request: Request, deployment_id: str):
         ) from e
 
 
+from .highcode_deploy import register_highcode
+
+register_highcode(app, manager)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=settings.HOST, port=settings.PORT)

@@ -119,3 +119,7 @@ htmlcov/
 dmypy.json
 
 .trae
+# 学习笔记软链（实体文件在 lean_openjiuwen）
+learn-agent-runtime
+# 本机测试用的第三方 wheel
+mac依赖/
