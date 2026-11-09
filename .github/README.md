@@ -31,13 +31,67 @@ GitHub 仓库首页优先展示 `.github/README.md`，所以打开 [songhaowei66
 
 ![控制台](images/console.png)
 
-## 启动
+## 环境搭建（模拟内网离线）
 
-管理服务：
+按下面步骤从零构建管理服务环境。第三方依赖先下载到项目根目录 `wheels/`，再离线安装；本仓库源码用可编辑安装。更细的命令记录见 `内网部署/操作步骤.md`。
+
+### 1. 创建虚拟环境
 
 ```bash
 cd server
-.venv/bin/python -m openjiuwen_runtime.server.main
+uv venv
+source .venv/bin/activate
+```
+
+### 2. 外网下载第三方 WHL
+
+```bash
+cd ..
+mkdir -p wheels
+pip download -r requirements.txt -d wheels \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple \
+  --trusted-host pypi.tuna.tsinghua.edu.cn
+```
+
+### 3. 离线安装第三方依赖
+
+```bash
+cd server
+source .venv/bin/activate
+uv pip install --no-index --find-links=../wheels -r ../requirements.txt
+```
+
+### 4. 可编辑安装本仓库包
+
+仍在 `server` 目录、venv 已激活：
+
+```bash
+uv pip install --no-deps -e ../foundation
+uv pip install --no-deps -e ../management
+uv pip install --no-deps -e .
+```
+
+`--no-deps` 避免再次联网拉依赖。`foundation` / `management` / `server` 以可编辑方式挂到源码目录，改代码立刻生效。
+
+### 5. 构建 foundation / service 基础 WHL
+
+部署高码 Agent 时，管理服务会从 `dist/` 取这两个基础包装进部署虚拟环境，需先打好：
+
+```bash
+cd ../foundation
+python -m build --wheel --outdir ../dist
+
+cd ../service
+python -m build --wheel --outdir ../dist
+```
+
+### 6. 启动管理服务
+
+```bash
+cd ../server
+source .venv/bin/activate
+set -a && source .env && set +a
+python -m openjiuwen_runtime.server.main
 ```
 
 当前配置是 `DEPLOY_TYPE=subprocess`、`MODE=dev`。高码 WHL 部署只在这两种配置下可用。
@@ -121,9 +175,14 @@ async def shutdown():
 
 以 `highcode-agents/day4-echo` 为例。模块路径是 `openjiuwen_runtime.day4_echo`。
 
+`pyproject.toml` 的 `dependencies` 只写业务自己的第三方包，**不要**写入 `openjiuwen-runtime-foundation` / `openjiuwen-runtime-service`。这两个由管理服务部署时从 `dist/` 装进该部署的 venv。
+
 ```bash
-cd highcode-agents/day4-echo
-uv build --out-dir ../../highcode-whls -i https://pypi.tuna.tsinghua.edu.cn/simple
+cd server
+source .venv/bin/activate
+
+cd ../highcode-agents/day4-echo
+python -m build --wheel --outdir ../../highcode-whls
 ```
 
 在控制台上传 `highcode-whls/day4_echo_runner-0.1.0-py3-none-any.whl`，模块路径填 `openjiuwen_runtime.day4_echo`。
